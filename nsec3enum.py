@@ -163,7 +163,7 @@ def nsec3_get_ranges(reply):
 		last = data[hash_index:hash_index+len_hash]
 
 		#get hash from base32'd domain name part
-		first = b32hex_decode(base32_from.decode())
+		first = b32hex_decode(base32_from.decode().lower())
 		result.append((first,last))
 
 	return result			
