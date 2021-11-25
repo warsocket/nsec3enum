@@ -4,6 +4,7 @@ import sys
 import re
 import random
 import hashlib
+import _socket
 
 ################################################################################
 #                                 DNS FUNCTIONS                                #
@@ -98,8 +99,16 @@ def dns_shake(pkt, timeout=0.5, ip="::ffff:127.0.0.53"):
 
 	sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
 	sock.settimeout(timeout)
-	sock.sendto(pkt, (ip, 53))
-	data, raddr = sock.recvfrom(0xFFFF)
+	
+	n = 0
+	while True: #keep re-trying
+		n+=1
+		try:
+			sock.sendto(pkt, (ip, 53))
+			data, raddr = sock.recvfrom(0xFFFF)
+			break
+		except _socket.timeout:
+			print(f"timeout on DNS server {ip}, commencing retry attempt {n}", file=sys.stderr)
 
 	#dns packetr parsing start here
 	ret = {"raw_data": data}
@@ -274,12 +283,31 @@ class nsec3_intervals():
 	def __init__(self):
 		self.__intervals = []
 
-
-	#todo, if this is slow, make it binary search
 	def __contains__(self, value):
-		for b,e in self.__intervals:
-			if b <= value <= e: return True
-		return False
+		pivot=None
+		lbound = 0
+		ubound = len(self.__intervals) -1
+
+		while lbound < ubound:
+			pivot = (lbound+ubound) // 2
+			b,e = self.__intervals[pivot]
+			if value > e:
+				lbound = pivot+1
+			elif value < b:
+				ubound = pivot-1
+			else:
+				return True
+
+		# print(lbound, pivot, ubound)
+		if not self.__intervals: return False
+		b,e = self.__intervals[lbound]
+		return b <= value <= e
+
+
+	# def __contains__(self, value):
+	# 	for b,e in self.__intervals:
+	# 		if b <= value <= e: return True
+	# 	return False
 
 
 	def add(self, interval):
@@ -341,7 +369,8 @@ def main():
 		ipv4 += [socket.inet_ntop(socket.AF_INET, x["data"]) for x in reply_ipv4["answers"] if x["type"] == dns_types["A"]] #addIP's to totoal IPv4 list
 		ipv6 += [socket.inet_ntop(socket.AF_INET6, x["data"]) for x in reply_ipv6["answers"] if x["type"] == dns_types["AAAA"]] #addIP's to totoal IPv6 list
 
-	ip_ns = [f'::ffff:{ip}' for ip in ipv4] + ipv6 # all ipv6, some are ipv4 mapped ipv6
+	ip_ns = [f'::ffff:{ip}' for ip in ipv4]
+	#ip_ns += ipv6 #THis needs to be off for poeple with no IPv6 connectivity
 
 	#Get NSEC3PARAM Record
 	pkt = mk_raw_dns_pkt(dns_types["NSEC3PARAM"], wiredomain, True)
@@ -377,6 +406,8 @@ def main():
 
 		if nsec3log.complete(): break
 
+	for line in ([x[0] for x in nsec3log.get()[1:]]):
+		print(line)
 
 
 
