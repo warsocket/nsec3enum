@@ -3,6 +3,7 @@ import socket
 import sys
 import re
 import random
+import json
 import hashlib
 import _socket
 
@@ -237,10 +238,11 @@ def leading_underscore_hostname_generator():
 	for item in g:
 		yield item[::-1]
 
-def b32hex_decode(b32string): #see rfc4648
-	b32hexlist = list(map(str,range(10))) + list(map(chr,range(97,119)))
-	b32hexmap = dict(zip(b32hexlist, range(32)))
 
+b32hexlist = list(map(str,range(10))) + list(map(chr,range(97,119)))
+b32hexmap = dict(zip(b32hexlist, range(32)))
+
+def b32hex_decode(b32string): #see rfc4648
 	#generate bitlist
 	bitlist = []
 	for char in b32string:
@@ -265,6 +267,37 @@ def b32hex_decode(b32string): #see rfc4648
 			shift -= 1
 
 	return bytes(ba)
+
+
+def b32hex_encode(bytestring): #see rfc4648
+	#generate bitlist
+	bitlist = []
+	for num in bytestring:
+		bitlist.append(bool(num & 0b10000000))
+		bitlist.append(bool(num & 0b1000000))
+		bitlist.append(bool(num & 0b100000))
+		bitlist.append(bool(num & 0b10000))
+		bitlist.append(bool(num & 0b1000))
+		bitlist.append(bool(num & 0b100))
+		bitlist.append(bool(num & 0b10))
+		bitlist.append(bool(num & 0b1))
+
+	#start popping form original start
+	buffer = []
+	bitlist.reverse()
+	while len(bitlist) >= 5:
+		acc=0
+		acc |= int(bitlist.pop()) << 4
+		acc |= int(bitlist.pop()) << 3
+		acc |= int(bitlist.pop()) << 2
+		acc |= int(bitlist.pop()) << 1
+		acc |= int(bitlist.pop()) << 0
+		# print(acc)
+		buffer.append(b32hexlist[acc])
+
+	return "".join(buffer)
+
+
 
 def nsec3_hash(raw_domain, salt, iters):
 	d = hashlib.sha1(raw_domain+salt).digest()
@@ -392,9 +425,9 @@ def main():
 		#get fqdn subdomain wire name
 		t = bytearray()
 		t.append(len(sub))
-		wiresubfulldomain = t + sub.encode("ASCII") + wiredomain
-
-		# print(wiresubfulldomain)
+		t += sub.encode("ASCII")
+		t += wiredomain
+		wiresubfulldomain = bytes(t)
 
 		#hash it
 		d = nsec3_hash(wiresubfulldomain, salt, iters)
@@ -406,8 +439,28 @@ def main():
 
 		if nsec3log.complete(): break
 
-	for line in ([x[0] for x in nsec3log.get()[1:]]):
-		print(line)
+	#binary output is meh
+	# #data precalc
+	# hashes = nsec3log.get()[1:]
+	# hashes_len = len(hashes)
+
+	# #now we binary emit the data
+	# sys.stdout.buffer.write(wiredomain) #dns exapnmded wire format of domain
+	# sys.stdout.buffer.write(b'\x01') #ALGORITHM: we only supprt SHA-1 atm, so 01, this also indicates the length of the hashes (20 bytes)
+	# sys.stdout.buffer.write(b'\x00') #NSEC3PARAM FLAG: (only valid value)
+	# sys.stdout.buffer.write(bytes([iters // 0x100, iters % 0x100])) #ITERATIONS (16-bits msb): 
+	# sys.stdout.buffer.write(bytes([len(salt)])) #SALT LENGTH (8-bit):
+	# sys.stdout.buffer.write(salt) #SALT:
+
+	# #NUM_HASHES (32-bits msb)
+	# for n in [3,2,1,0]: sys.stdout.buffer.write(bytes([hashes_len >> 8*n & 0b11111111]))
+
+	# #rest of the data
+	# for line in ([x[0] for x in hashes]):
+	# 	sys.stdout.buffer.write(line)
+
+	obj = {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1, "hashes":[b32hex_encode(h[0]) for h in nsec3log.get()[1:]] }
+	json.dump(obj, sys.stdout, indent=4)
 
 
 
