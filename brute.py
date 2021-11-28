@@ -38,7 +38,9 @@ def main(jsonfile, file):
 						wiresubfulldomain = wiredomain
 
 					h = nsec3_hash(wiresubfulldomain, salt, iters)
-					if h in hashes: print(f"{sub}.{domain}\t{b32hex_encode(h)}")
+					if h in hashes: 
+						print(f"{sub}.{domain}\t{b32hex_encode(h)}")
+						sys.stdout.flush()
 					line = f.readline()
 			break
 		except FileNotFoundError:

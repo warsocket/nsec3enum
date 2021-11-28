@@ -6,6 +6,7 @@ import random
 import json
 import hashlib
 import _socket
+import multiprocessing as mp
 
 ################################################################################
 #                                 DNS FUNCTIONS                                #
@@ -101,15 +102,15 @@ def dns_shake(pkt, timeout=0.5, ip="::ffff:127.0.0.53"):
 	sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
 	sock.settimeout(timeout)
 	
-	n = 0
 	while True: #keep re-trying
-		n+=1
 		try:
 			sock.sendto(pkt, (ip, 53))
 			data, raddr = sock.recvfrom(0xFFFF)
 			break
 		except _socket.timeout:
 			print(f"timeout on DNS server {ip}, commencing retry attempt {n}", file=sys.stderr)
+		finally:
+			sock.close()
 
 	#dns packetr parsing start here
 	ret = {"raw_data": data}
@@ -176,6 +177,202 @@ def nsec3_get_ranges(reply):
 dns_alphabet_sans = list(map(chr, range(97,123))) + list(map(str, range(10)))
 dns_alphabet = ["-"] + dns_alphabet_sans
 dns_alphabet_sans_underscore = ["_"] + dns_alphabet_sans
+
+
+
+def crude6_gen(include_empty_string=False):
+	if include_empty_string: yield ""
+
+	for x in dns_alphabet_sans_underscore:
+		yield x
+
+	for a in dns_alphabet:
+		for x in dns_alphabet_sans_underscore:
+			yield "".join([x,a])
+
+	for b in dns_alphabet:
+		for a in dns_alphabet:
+			for x in dns_alphabet_sans_underscore:
+				yield "".join([x,a,b])
+
+	for c in dns_alphabet:
+		for b in dns_alphabet:
+			for a in dns_alphabet:
+				for x in dns_alphabet_sans_underscore:
+					yield "".join([x,a,b,c])
+
+	for d in dns_alphabet:
+		for c in dns_alphabet:
+			for b in dns_alphabet:
+				for a in dns_alphabet:
+					for x in dns_alphabet_sans_underscore:
+						yield "".join([x,a,b,c,d])
+
+	for e in dns_alphabet:
+		for d in dns_alphabet:
+			for c in dns_alphabet:
+				for b in dns_alphabet:
+					for a in dns_alphabet:
+						for x in dns_alphabet_sans_underscore:
+							yield "".join([x,a,b,c,d,e])
+
+
+def brute_gen(include_empty_string=False):
+
+	#we ache at 4 chars, since thats doable
+	def cart(gen_a, gen_b):
+		for b in gen_b():
+			for a in gen_a():
+				yield a+b
+
+	def seq(*it_list):
+		for it in it_list:
+			for item in it():
+				yield item
+
+	#make generators from generator factories
+	mkcart = lambda a,b: lambda: cart(a,b)
+	mkseq = lambda *a: lambda: seq(*a)
+
+
+	#We all greacet then as generator factories like the mnethods above
+	left_1 = lambda: (x for x in dns_alphabet_sans_underscore)
+	mid_1 = lambda: (x for x in dns_alphabet)
+	ramp_left_1 = left_1
+	ramp_mid_1 = mid_1
+
+	# left_2 = mkcart(left_1, mid_1)
+	# mid_2 = mkcart(mid_1, mid_1)
+	# ramp_left_2 = left_1
+	# ramp_mid_2 = mid_1
+
+	# left_4 = mkcart(left_2, mid_2)
+	# mid_4 = mkcart(mid_2, mid_2)
+	# ramp_left_4 = mkseq(left_2,mid_2)
+	# ramp_mid_4 = mkseq(mid_2,mid_2)
+
+
+	#That commeted above we will be doing only then in more general form :)
+	left = [left_1]
+	mid = [mid_1]
+	ramp_left = [ramp_left_1]
+	ramp_mid = [ramp_mid_1]
+
+	for x in range(6): #2**6 = 64 which is max domain part length
+		
+		l = left[-1]
+		m = mid[-1]
+		rl = ramp_left[-1]
+		rm = ramp_mid[-1]
+
+		left.append( mkcart(l,m) )
+		mid.append( mkcart(m,m) )
+		ramp_left.append( mkseq(rl,mkcart(l,rm)) )
+		ramp_mid.append( mkseq(rm,mkcart(m,rm)) )
+		# ramp_left.append( mkseq(rl,l,mkcart(l,rm),left[-1]) )
+		# ramp_mid.append( mkseq(rm,m,mkcart(m,rm),mid[-1]) )
+
+
+	#THis cache seems slower then the original, so we stick with non-cahced
+		if x == 1: #1 = 2nd loop and 3rd item in list so index 2 which matches with 4 chars 2**2
+			orig = left.pop()
+			cache_left = list(orig())
+			cached = lambda: (val for val in cache_left)
+			left.append(cached)
+
+			orig = mid.pop()
+			cache_mid = list(orig())
+			cached = lambda: (val for val in cache_mid)
+			mid.append(cached)
+
+			orig = ramp_left.pop()
+			cache_ramp_left = list(orig())
+			cached = lambda: (val for val in cache_ramp_left)
+			ramp_left.append(cached)
+
+			orig = ramp_mid.pop()
+			cache_ramp_mid = list(orig())
+			cached = lambda: (val for val in cache_ramp_mid)
+			ramp_mid.append(cached)				 
+
+	if include_empty_string: yield ""
+	for x in seq(ramp_left[6], left[6]):
+		yield x
+
+def broken_brute_gen(include_empty_string=False): #keep this here for timing purposes
+	def left_gen():
+		for item in dns_alphabet_sans_underscore: yield item
+
+	def mid_gen():
+		for item in dns_alphabet: yield item
+
+	#we work per 4
+	left_build = []
+	for left in left_gen():
+		left_build.append(left)
+
+	for c in mid_gen():
+		for left in mid_gen():
+			left_build.append("".join([left,c]))
+
+	for b in mid_gen():
+		for c in mid_gen():
+			for left in left_gen():
+				left_build.append("".join([left,c,b]))
+	# left_build.reverse()
+
+
+	left_full = []
+	for a in mid_gen():
+		for b in mid_gen():
+			for c in mid_gen():
+				for left in left_gen():
+					left_full.append("".join([left,c,b,a]))
+	# left_full.reverse()
+
+
+	mid_build = []
+	for d in mid_gen():
+		mid_build.append(d)
+
+	for c in mid_gen():
+		for d in mid_gen():
+			mid_build.append("".join([d,c]))
+
+	for b in mid_gen():
+		for c in mid_gen():
+			for d in mid_gen():
+				mid_build.append("".join([d,c,b]))
+
+	for a in mid_gen():
+		for b in mid_gen():
+			for c in mid_gen():
+				for d in mid_gen():
+					mid_build.append("".join([d+c+b]))
+	# mid_build.reverse()
+
+
+	mid_full = []
+	for a in mid_gen():
+		for b in mid_gen():
+			for c in mid_gen():
+				for d in mid_gen():
+					mid_full.append(d+c+b+a)
+	mid_full.reverse()
+
+	#now we start blasting
+	if include_empty_string: yield ""
+	for item in left_build: yield item
+	for item in left_full: yield item
+
+	for a in mid_build:
+		for l in left_full:
+			yield "".join([l,a])
+
+	for a in mid_full:
+		for l in left_full:
+			yield "".join([l,a])
+
 
 def hostname_generator(leading_alphabet=dns_alphabet_sans, center_alphabet=dns_alphabet, trailing_alphabet=dns_alphabet_sans): #so only valid hostnames (a-z0-9 and - someplaces) remember domainnames may contain all chars.
 
@@ -313,8 +510,8 @@ def nsec3_hash(raw_domain, salt, iters):
 ################################################################################
 
 class nsec3_intervals():
-	def __init__(self):
-		self.__intervals = []
+	def __init__(self, intervals=[]):
+		self.__intervals = intervals
 
 	def __contains__(self, value):
 		pivot=None
@@ -368,9 +565,11 @@ class nsec3_intervals():
 	def get(self):
 		return self.__intervals
 
+	def clone(self):
+		return nsec3_intervals(self.__intervals[:])
 
-def main():
-	domain = sys.argv[1]
+
+def main(domain, hash_procs):
 	wiredomain = domain2wire(domain)
 	################################################################################
 	#                                    TODO                                      #
@@ -417,49 +616,107 @@ def main():
 	#                             Enumerating hashes                               #
 	################################################################################
 	
-	nsec3log = nsec3_intervals()
+	
 
-	#domain names (as apposed to hostnames, can contain any character even binary)
-	#This seems like a good middle ground (all valid hostnames + prefix underscores for records like _spf)
-	for sub in leading_underscore_hostname_generator():
-		#get fqdn subdomain wire name
-		t = bytearray()
-		t.append(len(sub))
-		t += sub.encode("ASCII")
-		t += wiredomain
-		wiresubfulldomain = bytes(t)
+	def main_loop():
+		nsec3log = nsec3_intervals()
+		#domain names (as apposed to hostnames, can contain any character even binary)
+		#This seems like a good middle ground (all valid hostnames + prefix underscores for records like _spf)
+		# for sub in leading_underscore_hostname_generator():
+		for sub in brute_gen():
+			#get fqdn subdomain wire name
+			wiresubfulldomain = bytes([len(sub)]) + sub.encode("ASCII") + wiredomain
 
-		#hash it
-		d = nsec3_hash(wiresubfulldomain, salt, iters)
-		if not d in nsec3log:
-			pkt = mk_raw_dns_pkt(dns_types["A"], wiresubfulldomain, True)
-			reply = dns_shake(pkt, ip=random.choice(ip_ns)) #Could improve to queue later for more torughput, but usually 1 dns server is already sufficient
-			for interval in nsec3_get_ranges(reply):
-				nsec3log.add(interval)
+			#hash it
+			d = nsec3_hash(wiresubfulldomain, salt, iters)
+			if not d in nsec3log:
+				pkt = mk_raw_dns_pkt(dns_types["A"], wiresubfulldomain, True)
+				reply = dns_shake(pkt, ip=random.choice(ip_ns)) #Could improve to queue later for more torughput, but usually 1 dns server is already sufficient
+				for interval in nsec3_get_ranges(reply):
+					nsec3log.add(interval)
 
-		if nsec3log.complete(): break
+			if nsec3log.complete(): break
 
-	#binary output is meh
-	# #data precalc
-	# hashes = nsec3log.get()[1:]
-	# hashes_len = len(hashes)
+		return {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1, "hashes":[b32hex_encode(h[0]) for h in nsec3log.get()[1:]] }
 
-	# #now we binary emit the data
-	# sys.stdout.buffer.write(wiredomain) #dns exapnmded wire format of domain
-	# sys.stdout.buffer.write(b'\x01') #ALGORITHM: we only supprt SHA-1 atm, so 01, this also indicates the length of the hashes (20 bytes)
-	# sys.stdout.buffer.write(b'\x00') #NSEC3PARAM FLAG: (only valid value)
-	# sys.stdout.buffer.write(bytes([iters // 0x100, iters % 0x100])) #ITERATIONS (16-bits msb): 
-	# sys.stdout.buffer.write(bytes([len(salt)])) #SALT LENGTH (8-bit):
-	# sys.stdout.buffer.write(salt) #SALT:
 
-	# #NUM_HASHES (32-bits msb)
-	# for n in [3,2,1,0]: sys.stdout.buffer.write(bytes([hashes_len >> 8*n & 0b11111111]))
 
-	# #rest of the data
-	# for line in ([x[0] for x in hashes]):
-	# 	sys.stdout.buffer.write(line)
+	def main_loop_multi(nproc):
+		nsec3log = nsec3_intervals()
+		target = 1
+		gen = brute_gen()
+		pipes = []
+		for _ in range(nproc):
+			pipes.append(mp.Pipe())
 
-	obj = {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1, "hashes":[b32hex_encode(h[0]) for h in nsec3log.get()[1:]] }
+		def proc(items_per_proc, p, q, log):
+			for x in range(items_per_proc):
+				sub = p.recv()
+				wiresubfulldomain = bytes([len(sub)]) + sub.encode("ASCII") + wiredomain
+
+				d = nsec3_hash(wiresubfulldomain, salt, iters)
+				if d not in log:
+					q.put(wiresubfulldomain)
+
+			p.close()
+			q.put(None) #signal done
+
+
+		def nextitems(items_per_proc, num_proc, nsec3log):
+			process = []
+			q = mp.Queue()
+
+			for _,p in pipes: #len(pipes) == NPROC
+				process.append( mp.Process(target=proc, args=(items_per_proc,p,q,nsec3log.clone())) )
+				process[-1].start()
+
+			for _ in range(items_per_proc):
+				for p,_ in pipes:
+					p.send(next(gen))
+			return (q, process)
+
+
+		while True:
+			q, processes = nextitems(target, nproc, nsec3log) #start next procs and burst subdomains in there
+
+			count = nproc
+			hit = False
+			while count:
+				data = q.get()
+
+				if data == None:
+					count -= 1
+				else: # got a sub thats fresh
+					if hit: #more than one found, so recheck, if its in range
+						d = nsec3_hash(data, salt, iters)
+						send_pkt = not d in nsec3log
+					else:
+						hit = True
+						send_pkt = True
+
+					if send_pkt:
+						pkt = mk_raw_dns_pkt(dns_types["A"], data, True)
+						reply = dns_shake(pkt, ip=random.choice(ip_ns)) #Could improve to queue later for more torughput, but usually 1 dns server is already sufficient
+						for interval in nsec3_get_ranges(reply):
+							nsec3log.add(interval)			
+
+			if not hit: 
+				target <<= 1 #double the capacity
+
+			for p in processes:
+				p.join()
+				p.close() #needs python 3.7
+
+
+			if nsec3log.complete(): break
+
+		return {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1, "hashes":[b32hex_encode(h[0]) for h in nsec3log.get()[1:]] }
+			
+	if hash_procs > 1:
+		obj = main_loop_multi(hash_procs)
+	else:
+		obj = main_loop()
+
 	json.dump(obj, sys.stdout, indent=4)
 
 
@@ -470,9 +727,16 @@ def main():
 ################################################################################
 
 if __name__ == "__main__": 
-	main()
+	if len(sys.argv) >= 3:
+		main(sys.argv[1], int(sys.argv[2]))
+	else:
+		main(sys.argv[1], 1)
+
+
+	#TODO need to do stuff with ipv6 server being off by default
+	#And a choice of generator
 
 	# import cProfile
 	# with cProfile.Profile() as pr:
-	# 	main()
+	# 	main(sys.argv[1])
 	# pr.print_stats()
