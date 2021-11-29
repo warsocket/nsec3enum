@@ -102,8 +102,10 @@ def dns_shake(pkt, timeout=0.5, ip="::ffff:127.0.0.53"):
 	sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
 	sock.settimeout(timeout)
 	
+	n = 0
 	while True: #keep re-trying
 		try:
+			n += 1
 			sock.sendto(pkt, (ip, 53))
 			data, raddr = sock.recvfrom(0xFFFF)
 			break
@@ -646,38 +648,47 @@ def main(domain, hash_procs):
 		target = 1
 		gen = brute_gen()
 		pipes = []
+		process = []
+		q = mp.Queue()
+
+
+		def proc(p, q):
+			while True:
+				items_per_proc, log = p.recv()
+				if not items_per_proc: return
+
+				for x in range(items_per_proc):
+					sub = p.recv()
+					wiresubfulldomain = bytes([len(sub)]) + sub.encode("ASCII") + wiredomain
+
+					d = nsec3_hash(wiresubfulldomain, salt, iters)
+					if d not in log:
+						q.put(wiresubfulldomain)
+				q.put(None) #signal done
+
+
 		for _ in range(nproc):
 			pipes.append(mp.Pipe())
 
-		def proc(items_per_proc, p, q, log):
-			for x in range(items_per_proc):
-				sub = p.recv()
-				wiresubfulldomain = bytes([len(sub)]) + sub.encode("ASCII") + wiredomain
-
-				d = nsec3_hash(wiresubfulldomain, salt, iters)
-				if d not in log:
-					q.put(wiresubfulldomain)
-
-			p.close()
-			q.put(None) #signal done
+		for _,p in pipes: #len(pipes) == NPROC
+			process.append( mp.Process(target=proc, args=(p,q)) )
+			process[-1].start()
 
 
-		def nextitems(items_per_proc, num_proc, nsec3log):
-			process = []
-			q = mp.Queue()
 
-			for _,p in pipes: #len(pipes) == NPROC
-				process.append( mp.Process(target=proc, args=(items_per_proc,p,q,nsec3log.clone())) )
-				process[-1].start()
+		def nextitems(items_per_proc, nsec3log):
+			clone = nsec3log.clone() #only 1 clone needed since the procs only perform read actions
+			for p,_ in pipes:
+				p.send((items_per_proc, clone))
 
 			for _ in range(items_per_proc):
 				for p,_ in pipes:
 					p.send(next(gen))
-			return (q, process)
+
 
 
 		while True:
-			q, processes = nextitems(target, nproc, nsec3log) #start next procs and burst subdomains in there
+			nextitems(target, nsec3log) #start next procs and burst subdomains in there
 
 			count = nproc
 			hit = False
@@ -699,16 +710,18 @@ def main(domain, hash_procs):
 						reply = dns_shake(pkt, ip=random.choice(ip_ns)) #Could improve to queue later for more torughput, but usually 1 dns server is already sufficient
 						for interval in nsec3_get_ranges(reply):
 							nsec3log.add(interval)			
-
 			if not hit: 
 				target <<= 1 #double the capacity
 
-			for p in processes:
-				p.join()
-				p.close() #needs python 3.7
+			if nsec3log.complete(): 
+				for p,_ in pipes: #len(pipes) == NPROC
+					p.send((0, None))
 
+				for p in process:
+					p.join()
+				# p.close() #needs python 3.7
 
-			if nsec3log.complete(): break
+				break
 
 		return {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1, "hashes":[b32hex_encode(h[0]) for h in nsec3log.get()[1:]] }
 			

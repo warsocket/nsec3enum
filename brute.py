@@ -32,14 +32,13 @@ def main(jsonfile, file):
 					if sub:
 						#get fqdn subdomain wire name
 						wiresubfulldomain = bytes([len(sub)]) + sub.encode("ASCII") + wiredomain
-						# wiresubfulldomain = bytes([len(sub)]) + fast_encode(sub) + wiredomain
 					else:
 
 						wiresubfulldomain = wiredomain
 
 					h = nsec3_hash(wiresubfulldomain, salt, iters)
 					if h in hashes: 
-						print(f"{sub}.{domain}\t{b32hex_encode(h)}")
+						print(f"{b32hex_encode(h)}\t{sub}.{domain}")
 						sys.stdout.flush()
 					line = f.readline()
 			break

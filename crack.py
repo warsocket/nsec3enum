@@ -17,9 +17,9 @@ def main(jsonfile, max_chars, NUMFILES=16):
 
 if __name__ == "__main__": 
 	if len(sys.argv) >= 4:
-		main(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))
+		main(sys.argv[1], sys.argv[2], int(sys.argv[3]))
 	else:
-		main(sys.argv[1], int(sys.argv[2]))
+		main(sys.argv[1], sys.argv[2])
 
 	# import cProfile
 	# with cProfile.Profile() as pr:
