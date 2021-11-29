@@ -38,7 +38,7 @@ def main(crackstring, NUMFILES=1):
 				rline = r.readline()
 				while rline:
 					rline = r.readline()
-					rsub = rline[:-1]
+					rsub = rline.rstrip()
 					if not rsub: continue
 					yield rsub
 
@@ -47,7 +47,7 @@ def main(crackstring, NUMFILES=1):
 							lline = l.readline()
 							while lline:
 								lline = l.readline()
-								lsub = lline[:-1]
+								lsub = lline.rstrip()
 								if not lsub: continue
 								yield f"{lsub}{rsub}"
 								yield f"{lsub}-{rsub}"
@@ -78,15 +78,30 @@ def main(crackstring, NUMFILES=1):
 				yield ret
 
 
+
+	def openfile(params):
+		with open(params, "r") as f:
+			line = f.readline()
+			while line:
+				yield line.rstrip()
+				line = f.readline()
+
+
 	methods = {
 		"brute": brute_feed,
 		"cartself": cartself,
 		"cartselfcache": cartselfcache,
+		"file": openfile,
 	}
 
 	#####################
 
-	method, param = crackstring.split(" ", 1)
+	cs = crackstring.split(" ", 1)
+	if len(cs) > 1:
+		method, param = cs
+	else:
+		method = cs[0]
+
 	for n, sub in enumerate(methods[method](param)):
 		print(sub, file = files[n % NUMFILES])
 
