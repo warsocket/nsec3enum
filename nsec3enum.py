@@ -18,17 +18,33 @@ dns_types = {
 	"AAAA": b'\x00\x1c',
 	"NSEC3PARAM": b'\x00\x33',
 	"NSEC3": b'\x00\x32',
+	"NSEC": b'\x00\x2f',
 }
 
 def domain2wire(domain):
 	b = bytearray()
 
 	for sub in domain.split("."):
+		if not sub : continue
 		b.append(len(sub))
 		b += sub.encode("ASCII")
 
 	b.append(0)
 	return bytes(b)
+
+def wire2parts(domainbytes):
+	index = 0
+	parts = []
+
+	byt = domainbytes[0]
+	while byt:
+		index += 1
+		parts.append(domainbytes[index:index+byt])
+		index += byt
+		byt = domainbytes[index]
+
+	return parts
+
 
 
 def word2num(word): #lsb word
@@ -83,7 +99,7 @@ def uncompress_record(pkt, rdata): #Warning No endless loop protection, yet? (co
 	return bytes(r)
 
 #TODO we gonna do real parsing form now on, so no more need for hacky offset
-def dns_shake(pkt, timeout=0.5, ip="::ffff:127.0.0.53"):
+def dns_shake(pkt, timeout=0.1, ip="::ffff:127.0.0.53"):
 
 	def get_name_range(data, start=0):
 		index = start
@@ -111,8 +127,8 @@ def dns_shake(pkt, timeout=0.5, ip="::ffff:127.0.0.53"):
 			break
 		except _socket.timeout:
 			print(f"timeout on DNS server {ip}, commencing retry attempt {n}", file=sys.stderr)
-		finally:
-			sock.close()
+
+	sock.close()
 
 	#dns packetr parsing start here
 	ret = {"raw_data": data}
@@ -573,11 +589,6 @@ class nsec3_intervals():
 
 def main(domain, hash_procs):
 	wiredomain = domain2wire(domain)
-	################################################################################
-	#                                    TODO                                      #
-	################################################################################
-
-	# Handle UDP timeouts better then just failing after half a second
 
 	################################################################################
 	#                                   DNS PREP                                   #
