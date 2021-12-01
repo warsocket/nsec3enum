@@ -1,5 +1,5 @@
 #!/usr/bin/env pypy3
-from nsec3enum import dns_types, mk_raw_dns_pkt, dns_shake, uncompress_record, domain2wire, wire2parts, dns_alphabet
+from nsec3enum import dns_types, mk_raw_dns_pkt, dns_shake, uncompress_record, domain2wire, wire2parts, dns_alphabet, get_nameservers
 import sys
 import socket
 import random
@@ -26,7 +26,7 @@ def incname(wirename, addsub=False):
 	#se again lets try appending a dash
 	else:
 		l = wirename[0]
-
+		if l >= 63: return incname(wirename, True)
 		return( bytes([l+1]) + wirename[1:l+1] + b'-' + wirename[l+1:] )
 
 
@@ -37,33 +37,13 @@ def main(domain):
 	wiredomain = domain2wire(domain)
 	dps = len(wire2parts(wiredomain))
 
-	#Get nameserver names from default nameserver
-	ns_pkt = mk_raw_dns_pkt(dns_types["NS"], wiredomain)
-	nameservers_reponse = dns_shake(ns_pkt)
-
-	#Resolve all nameserver ip's using default nameserver
-	ipv4 = [] #will contain all ipv4 adresses of nameservers (ipv4 mapped ipv6)
-	ipv6 = [] #will contain all ipv6 addresses of nameservers
-
-	#parse data, which are hostnames for dns servers (whichg ened to be expanded)
-	nameservers = [uncompress_record(nameservers_reponse["raw_data"],x["data"]) for x in nameservers_reponse["answers"] if x["type"] == dns_types["NS"]]
-	for nameserver in nameservers:
-		pkt_ipv4 = mk_raw_dns_pkt(dns_types["A"], nameserver) #query IPv4's of naemserver
-		reply_ipv4 = dns_shake(pkt_ipv4)
-
-		pkt_ipv6 = mk_raw_dns_pkt(dns_types["AAAA"], nameserver) #query IPv6's of naemserver
-		reply_ipv6 = dns_shake(pkt_ipv6)
-
-		ipv4 += [socket.inet_ntop(socket.AF_INET, x["data"]) for x in reply_ipv4["answers"] if x["type"] == dns_types["A"]] #addIP's to totoal IPv4 list
-		ipv6 += [socket.inet_ntop(socket.AF_INET6, x["data"]) for x in reply_ipv6["answers"] if x["type"] == dns_types["AAAA"]] #addIP's to totoal IPv6 list
-
+	wiredomain = domain2wire(domain)
+	ipv4, ipv6 = get_nameservers(wiredomain)
 	ip_ns = [f'::ffff:{ip}' for ip in ipv4]
 	#ip_ns += ipv6 #THis needs to be off for poeple with no IPv6 connectivity
 
 
 	#main loop
-
-
 	nextdomain = incname(wiredomain, True)
 	print(domain) # list domain itself
 	endset = set() #set to log which items we already got
@@ -87,6 +67,7 @@ def main(domain):
 		if end == wiredomain: break
 		endset.add(end)
 		print(".".join(map(lambda x: x.decode("ascii"), wire2parts(end))))
+		sys.stdout.flush()
 	
 		# print(end, wiredomain)
 		# print(f"EMD: {end}")

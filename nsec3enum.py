@@ -21,6 +21,7 @@ dns_types = {
 	"NSEC": b'\x00\x2f',
 }
 
+
 def domain2wire(domain):
 	b = bytearray()
 
@@ -31,6 +32,7 @@ def domain2wire(domain):
 
 	b.append(0)
 	return bytes(b)
+
 
 def wire2parts(domainbytes):
 	index = 0
@@ -44,7 +46,6 @@ def wire2parts(domainbytes):
 		byt = domainbytes[index]
 
 	return parts
-
 
 
 def word2num(word): #lsb word
@@ -98,8 +99,9 @@ def uncompress_record(pkt, rdata): #Warning No endless loop protection, yet? (co
 
 	return bytes(r)
 
+
 #TODO we gonna do real parsing form now on, so no more need for hacky offset
-def dns_shake(pkt, timeout=0.1, ip="::ffff:127.0.0.53"):
+def dns_shake(pkt, attempts=None, timeout=0.3, ip="::ffff:127.0.0.53", tcp=False):
 
 	def get_name_range(data, start=0):
 		index = start
@@ -115,20 +117,58 @@ def dns_shake(pkt, timeout=0.1, ip="::ffff:127.0.0.53"):
 		return(start,index+1)# +1 to skip past the last 00 byte
 
 
-	sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-	sock.settimeout(timeout)
-	
-	n = 0
-	while True: #keep re-trying
-		try:
-			n += 1
-			sock.sendto(pkt, (ip, 53))
-			data, raddr = sock.recvfrom(0xFFFF)
-			break
-		except _socket.timeout:
-			print(f"timeout on DNS server {ip}, commencing retry attempt {n}", file=sys.stderr)
+	def send_tcp(pkt, attempts, timeout, ip):
+		n = 0
+		while True: #keep re-trying
+			try:
+				n += 1
+				sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+				sock.settimeout(timeout)
+				sock.connect((ip, 53))
+				sock.sendall(bytes([len(pkt) // 0x100, len(pkt) % 0x100]) + pkt)
+				data = sock.recv(word2num(sock.recv(2)))
+				break
+			except _socket.timeout:
+				if attempts:
+					if n >= attempts: 
+						sock.close()
+						return None
+				print(f"timeout on DNS server TCP:{ip}, commencing retry attempt {n}", file=sys.stderr)
 
-	sock.close()
+		sock.close()
+		return data
+
+
+	def send_udp(pkt, attempts, timeout, ip):
+		sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+		sock.settimeout(timeout)
+		
+		n = 0
+		while True: #keep re-trying
+			try:
+				n += 1
+				sock.sendto(pkt, (ip, 53))
+				data, raddr = sock.recvfrom(0xFFFF)
+				break
+			except _socket.timeout:
+				if attempts:
+					if n >= attempts: 
+						sock.close()
+						return None
+				print(f"timeout on DNS server UDP:{ip}, commencing retry attempt {n}", file=sys.stderr)
+
+		sock.close()
+		return data
+
+	if tcp:
+		data = send_tcp(pkt, attempts, timeout, ip)
+	else:
+		data = send_udp(pkt, attempts, timeout, ip)
+
+	if not data: return data #return the None if failed
+	
+	if (data[3] & 0x40): dns_shake(pkt, attempts, timeout, ip, False) #retry TCP
+	
 
 	#dns packetr parsing start here
 	ret = {"raw_data": data}
@@ -170,6 +210,34 @@ def dns_shake(pkt, timeout=0.1, ip="::ffff:127.0.0.53"):
 	#TODO addiotional records parsing, bnuyt since they are of no use to use this is deemed Nice to have
 			
 	return ret
+
+
+def get_nameservers(wiredomain, add_dnssec=False, **kwargs):
+	#Get nameserver names from default nameserver
+	ns_pkt = mk_raw_dns_pkt(dns_types["NS"], wiredomain, add_dnssec)
+
+	nameservers_reponse = dns_shake(ns_pkt, **kwargs)
+	if not nameservers_reponse: return ([],[])
+
+	#Resolve all nameserver ip's using default nameserver
+	ipv4 = [] #will contain all ipv4 adresses of nameservers (ipv4 mapped ipv6)
+	ipv6 = [] #will contain all ipv6 addresses of nameservers
+
+	#parse data, which are hostnames for dns servers (whichg ened to be expanded)
+	nameservers = [uncompress_record(nameservers_reponse["raw_data"],x["data"]) for x in nameservers_reponse["answers"]+nameservers_reponse["authorities"] if x["type"] == dns_types["NS"]]
+	for nameserver in nameservers:
+		pkt_ipv4 = mk_raw_dns_pkt(dns_types["A"], nameserver) #query IPv4's of naemserver
+		reply_ipv4 = dns_shake(pkt_ipv4, **kwargs)
+
+		pkt_ipv6 = mk_raw_dns_pkt(dns_types["AAAA"], nameserver) #query IPv6's of naemserver
+		reply_ipv6 = dns_shake(pkt_ipv6, **kwargs)
+
+		if reply_ipv4:
+			ipv4 += [socket.inet_ntop(socket.AF_INET, x["data"]) for x in reply_ipv4["answers"] if x["type"] == dns_types["A"]] #addIP's to totoal IPv4 list
+		if reply_ipv6:
+			ipv6 += [socket.inet_ntop(socket.AF_INET6, x["data"]) for x in reply_ipv6["answers"] if x["type"] == dns_types["AAAA"]] #addIP's to totoal IPv6 list
+
+	return(ipv4, ipv6)
 
 
 def nsec3_get_ranges(reply):
@@ -588,32 +656,12 @@ class nsec3_intervals():
 
 
 def main(domain, hash_procs):
-	wiredomain = domain2wire(domain)
-
 	################################################################################
 	#                                   DNS PREP                                   #
 	################################################################################
 
-	#Get nameserver names from default nameserver
-	ns_pkt = mk_raw_dns_pkt(dns_types["NS"], wiredomain)
-	nameservers_reponse = dns_shake(ns_pkt)
-
-	#Resolve all nameserver ip's using default nameserver
-	ipv4 = [] #will contain all ipv4 adresses of nameservers (ipv4 mapped ipv6)
-	ipv6 = [] #will contain all ipv6 addresses of nameservers
-
-	#parse data, which are hostnames for dns servers (whichg ened to be expanded)
-	nameservers = [uncompress_record(nameservers_reponse["raw_data"],x["data"]) for x in nameservers_reponse["answers"] if x["type"] == dns_types["NS"]]
-	for nameserver in nameservers:
-		pkt_ipv4 = mk_raw_dns_pkt(dns_types["A"], nameserver) #query IPv4's of naemserver
-		reply_ipv4 = dns_shake(pkt_ipv4)
-
-		pkt_ipv6 = mk_raw_dns_pkt(dns_types["AAAA"], nameserver) #query IPv6's of naemserver
-		reply_ipv6 = dns_shake(pkt_ipv6)
-
-		ipv4 += [socket.inet_ntop(socket.AF_INET, x["data"]) for x in reply_ipv4["answers"] if x["type"] == dns_types["A"]] #addIP's to totoal IPv4 list
-		ipv6 += [socket.inet_ntop(socket.AF_INET6, x["data"]) for x in reply_ipv6["answers"] if x["type"] == dns_types["AAAA"]] #addIP's to totoal IPv6 list
-
+	wiredomain = domain2wire(domain)
+	ipv4, ipv6 = get_nameservers(wiredomain)
 	ip_ns = [f'::ffff:{ip}' for ip in ipv4]
 	#ip_ns += ipv6 #THis needs to be off for poeple with no IPv6 connectivity
 
