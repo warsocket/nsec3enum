@@ -22,18 +22,6 @@ dns_types = {
 }
 
 
-def domain2wire(domain):
-	b = bytearray()
-
-	for sub in domain.split("."):
-		if not sub : continue
-		b.append(len(sub))
-		b += sub.encode("ASCII")
-
-	b.append(0)
-	return bytes(b)
-
-
 def wire2parts(domainbytes):
 	index = 0
 	parts = []
@@ -46,6 +34,22 @@ def wire2parts(domainbytes):
 		byt = domainbytes[index]
 
 	return parts
+
+
+def domain2wire(domain):
+	b = bytearray()
+
+	for sub in domain.split("."):
+		if not sub : continue
+		b.append(len(sub))
+		b += sub.encode("ASCII")
+
+	b.append(0)
+	return bytes(b)
+
+
+def wire2domain(wiredomain):
+	return ".".join(map(lambda x: x.decode("ascii"), wire2parts(wiredomain)))
 
 
 def word2num(word): #lsb word
