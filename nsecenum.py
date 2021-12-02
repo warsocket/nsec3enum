@@ -1,5 +1,5 @@
 #!/usr/bin/env pypy3
-from nsec3enum import dns_types, mk_raw_dns_pkt, dns_shake, uncompress_record, domain2wire, wire2domain, dns_alphabet, get_nameservers
+from nsec3enum import dns_types, mk_raw_dns_pkt, dns_shake, uncompress_record, domain2wire, wire2domain, wire2parts, dns_alphabet, get_nameservers
 import sys
 import socket
 import random
@@ -12,6 +12,28 @@ import queue
 ################################################################################
 
 full_alphabet = sorted(dns_alphabet + ["_"])
+
+def dnssorted(l):
+
+	nametree = {}
+	for name in (map(wire2parts, l)):
+		ptr = nametree #reset to root
+
+		while name:
+			part = name.pop().decode("ASCII") # lets just make it text
+			if part not in ptr: ptr[part] = {}
+			ptr = ptr[part]
+		ptr[""] = {}
+
+	#now we recursively add the stuff to a list
+	def slist(node):
+		if not node: #empty leaf
+			return [""]
+		else:
+			return [leaf+"."+key for key in sorted(list(node.keys())) for leaf in slist(node[key])] #cartesian product of domain with superdomain
+
+	return map(lambda x: x[2:], slist(nametree))
+		
 
 def incname(wirename, addsub=False):
 	#the most insignificant increate is alsways adding a 00 subdomain part
@@ -74,25 +96,28 @@ def main(domain, num_threads=1):
 	################################################################################
 
 	if num_threads > 1:
-		#for now max len(full_alphabet) threads
 		q = queue.Queue()
 
 		begin = set()
-		step = len(full_alphabet) / num_threads
+
+		init_list = full_alphabet[:]
+		while len(init_list) < num_threads:
+			init_list += [i+j for i in init_list[:] for j in full_alphabet]
+
+		step = len(init_list) / num_threads
 
 		acc = 0.0
 		for n in range(num_threads):
-			wirestart = domain2wire(f'{full_alphabet[round(acc)]}-.{domain}')
+			wirestart = domain2wire(f'{init_list[int(acc)]}-.{domain}')
 			begin |= set(get_nsec_records(wirestart, ip=ip_ns[0]))
 			acc += step
 
 
 		def thread_func(q, start, known, **kwarg):
-			ret = []
+			ret = set()
 			for x in nsec_gen(start, known, **kwarg):
-				ret.append(x)
+				ret.add(x)
 			q.put(ret)
-
 
 
 		threads = []
@@ -104,12 +129,11 @@ def main(domain, num_threads=1):
 		for t in threads:
 			t.join()
 
-		ret = []
 		for t in threads:
-			ret += q.get()
+			begin |= q.get()
 
-		for item in [d[0] for d in ret]:
-			print(wire2domain(item))
+		for item in dnssorted([d[0] for d in begin]): #sorting might not totally adhere to DNS order, but it way betyer than the random stuff
+			print(item)
 
 
 	else:
