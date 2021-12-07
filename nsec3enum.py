@@ -177,7 +177,7 @@ def dns_shake(pkt, attempts=None, timeout=0.3, ip="::ffff:127.0.0.53", tcp=False
 
 	if not data: return data #return the None if failed
 	
-	if (data[3] & 0x02): data = send_tcp(pkt, attempts, timeout, ip) #retry TCP
+	if (data[2] & 0x02): data = send_tcp(pkt, attempts, timeout, ip) #retry TCP
 	
 
 	#dns packetr parsing start here
@@ -666,6 +666,7 @@ class nsec3_intervals():
 
 
 def main(domain, hash_procs):
+	global lastsub
 	################################################################################
 	#                                   DNS PREP                                   #
 	################################################################################
@@ -686,11 +687,29 @@ def main(domain, hash_procs):
 	################################################################################
 	#                             Enumerating hashes                               #
 	################################################################################
-	
+	nsec3log = nsec3_intervals()
+	lastsub = "_"
 	
 
+	def emit_data(done=True):
+		global lastsub
+		obj = {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1}
+
+		if done:
+			hashes = nsec3log.get()[1:]
+		else:
+			hashes = nsec3log.get()
+
+		obj["hashes"] = [b32hex_encode(h[0]) for h in hashes]
+		obj["count"] = len(obj["hashes"])
+		obj["last"] = lastsub
+		# return {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1, "hashes":[b32hex_encode(h[0]) for h in nsec3log.get()[1:]] }
+
+		return obj
+
+
 	def main_loop():
-		nsec3log = nsec3_intervals()
+		global lastsub
 		#domain names (as apposed to hostnames, can contain any character even binary)
 		#This seems like a good middle ground (all valid hostnames + prefix underscores for records like _spf)
 		# for sub in leading_underscore_hostname_generator():
@@ -706,14 +725,16 @@ def main(domain, hash_procs):
 				for interval in nsec3_get_ranges(reply):
 					nsec3log.add(interval)
 
-			if nsec3log.complete(): break
+			lastsub = sub
+			if nsec3log.complete(): 
+				break
+			
 
-		return {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1, "hashes":[b32hex_encode(h[0]) for h in nsec3log.get()[1:]] }
-
+		# return {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1, "hashes":[b32hex_encode(h[0]) for h in nsec3log.get()[1:]] }
 
 
 	def main_loop_multi(nproc):
-		nsec3log = nsec3_intervals()
+		global lastsub
 		target = 1
 		gen = brute_gen()
 		pipes = []
@@ -722,18 +743,22 @@ def main(domain, hash_procs):
 
 
 		def proc(p, q):
-			while True:
-				items_per_proc, log = p.recv()
-				if not items_per_proc: return
+			try:
+				while True:
+					items_per_proc, log = p.recv()
+					if not items_per_proc: return
 
-				for x in range(items_per_proc):
-					sub = p.recv()
-					wiresubfulldomain = bytes([len(sub)]) + sub.encode("ASCII") + wiredomain
+					for x in range(items_per_proc):
+						sub = p.recv()
+						wiresubfulldomain = bytes([len(sub)]) + sub.encode("ASCII") + wiredomain
 
-					d = nsec3_hash(wiresubfulldomain, salt, iters)
-					if d not in log:
-						q.put(wiresubfulldomain)
-				q.put(None) #signal done
+						d = nsec3_hash(wiresubfulldomain, salt, iters)
+						if d not in log:
+							q.put(wiresubfulldomain)
+					q.put(None) #signal done
+			except KeyboardInterrupt: #dont be noisy when killed by ctrl break
+				pass
+
 
 
 		for _ in range(nproc):
@@ -752,12 +777,16 @@ def main(domain, hash_procs):
 
 			for _ in range(items_per_proc):
 				for p,_ in pipes:
-					p.send(next(gen))
+					l = next(gen)
+					p.send(l)
+
+			return l #return last sub applied
 
 
-
+		future_last = lastsub
 		while True:
-			nextitems(target, nsec3log) #start next procs and burst subdomains in there
+			lastsub = future_last
+			future_last = nextitems(target, nsec3log) #start next procs and burst subdomains in there
 
 			count = nproc
 			hit = False
@@ -783,6 +812,7 @@ def main(domain, hash_procs):
 				target <<= 1 #double the capacity
 
 			if nsec3log.complete(): 
+				lastsub = future_last
 				for p,_ in pipes: #len(pipes) == NPROC
 					p.send((0, None))
 
@@ -792,15 +822,24 @@ def main(domain, hash_procs):
 
 				break
 
-		return {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1, "hashes":[b32hex_encode(h[0]) for h in nsec3log.get()[1:]] }
-			
-	if hash_procs > 1:
-		obj = main_loop_multi(hash_procs)
-	else:
-		obj = main_loop()
+		# return {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1, "hashes":[b32hex_encode(h[0]) for h in nsec3log.get()[1:]] }
 
-	obj["count"] = len(obj["hashes"])
+	# Main entry point
+			
+
+	try:
+		if hash_procs > 1:
+			obj = main_loop_multi(hash_procs)
+		else:
+			obj = main_loop()
+	except KeyboardInterrupt: #If we break we just emit up untill then
+		pass
+
+
+	obj = emit_data()
 	json.dump(obj, sys.stdout, indent=4)
+	# obj["count"] = len(obj["hashes"])
+	# json.dump(obj, sys.stdout, indent=4)
 
 
 
