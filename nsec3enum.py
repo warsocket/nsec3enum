@@ -7,6 +7,7 @@ import json
 import hashlib
 import _socket
 import multiprocessing as mp
+import random
 
 ################################################################################
 #                                 DNS FUNCTIONS                                #
@@ -56,7 +57,7 @@ def word2num(word): #lsb word
 	return word[0] << 0x8 | word[1]
 
 
-def mk_raw_dns_pkt(raw_dns_type, raw_name, add_dnssec=False):
+def mk_raw_dns_pkt(raw_dns_type, raw_name, add_dnssec=False, randomise_transid=True):
 	b = bytearray()
 	b += b'\x00\x00' #Transaction Id
 	b += b'\x01\x20' #Recusion flag + AD flag
@@ -71,6 +72,11 @@ def mk_raw_dns_pkt(raw_dns_type, raw_name, add_dnssec=False):
 	b += raw_dns_type 
 	b += b'\x00\x01'  # Class IN
 	answer_offset = len(b)
+
+	if randomise_transid:
+		b[0] = random.getrandbits(8)
+		b[1] = random.getrandbits(8)
+
 	if add_dnssec:
 		b += b'\x00' # root
 		b += b'\x00\x29' # type OPT
@@ -171,7 +177,7 @@ def dns_shake(pkt, attempts=None, timeout=0.3, ip="::ffff:127.0.0.53", tcp=False
 
 	if not data: return data #return the None if failed
 	
-	if (data[3] & 0x40): dns_shake(pkt, attempts, timeout, ip, False) #retry TCP
+	if (data[3] & 0x02): data = send_tcp(pkt, attempts, timeout, ip) #retry TCP
 	
 
 	#dns packetr parsing start here
@@ -793,6 +799,7 @@ def main(domain, hash_procs):
 	else:
 		obj = main_loop()
 
+	obj["count"] = len(obj["hashes"])
 	json.dump(obj, sys.stdout, indent=4)
 
 
@@ -803,10 +810,14 @@ def main(domain, hash_procs):
 ################################################################################
 
 if __name__ == "__main__": 
-	if len(sys.argv) >= 3:
-		main(sys.argv[1], int(sys.argv[2]))
-	else:
-		main(sys.argv[1], 1)
+	import argparse
+	
+	parser = argparse.ArgumentParser(description="Enumerate NSEC3 records form a domain")
+	parser.add_argument("domain", help="the domain to enumerate")
+	parser.add_argument("--cores", default=1, type=int, help="Number of cores to use for hasing subdomain names")
+	args = parser.parse_args()
+
+	main(args.domain, args.cores)
 
 
 	#TODO need to do stuff with ipv6 server being off by default

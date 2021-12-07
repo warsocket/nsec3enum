@@ -47,7 +47,14 @@ def main(jsonfile, file):
 
 
 if __name__ == "__main__": 
-	main(sys.argv[1], sys.argv[2])
+	import argparse
+	
+	parser = argparse.ArgumentParser(description="Generate candidate subdomains using various means, and optinally spread them to multiple files / pipes")
+	parser.add_argument("jsonfile", type=str, help="the json file from nsec3enum script")
+	parser.add_argument("file", type=str, help="the file / fifo to get the attempts from")
+	args = parser.parse_args()
+
+	main(args.jsonfile, args.file)
 
 	# import cProfile
 	# with cProfile.Profile() as pr:

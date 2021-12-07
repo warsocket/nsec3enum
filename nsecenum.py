@@ -123,7 +123,7 @@ def main(domain, num_threads=1):
 		threads = []
 		for b in begin:
 			# print(b[1])
-			threads.append( threading.Thread(target=thread_func, args=(q, incname(b[1]), begin.copy()), kwargs={"ip":ip_ns[0]}) )
+			threads.append( threading.Thread(target=thread_func, args=(q, incname(b[1]), begin.copy()), kwargs={"ip": random.choice(ip_ns)}) )
 			threads[-1].start()
 
 		for t in threads:
@@ -146,7 +146,11 @@ def main(domain, num_threads=1):
 ################################################################################
 
 if __name__ == "__main__": 
-	if len(sys.argv) >= 3:
-		main(sys.argv[1], int(sys.argv[2]))
-	else:
-		main(sys.argv[1])
+	import argparse
+	
+	parser = argparse.ArgumentParser(description="Enumerate NSEC3 records form a domain")
+	parser.add_argument("domain", help="the domain to enumerate")
+	parser.add_argument("--threads", default=1, type=int, help="Number of threads to use for hasing subdomain names (1 thread = streaming data >1 cahches data end emits sorted at the end)")
+	args = parser.parse_args()
+
+	main(args.domain, args.threads)

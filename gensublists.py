@@ -4,16 +4,20 @@ import os
 from nsec3enum import dns_alphabet_sans, dns_alphabet, dns_alphabet_sans_underscore, brute_gen, crude6_gen
 
 
-def main(crackstring, NUMFILES=1):
+def main(crackstring, NUMFILES=1, fsuffix = None):
 	files=[]
 	for n in range(NUMFILES):
 		# f = open(f"sub{n:02d}.txt", "w")
-		name = f"{n}.fifo"
 
-		try:
-			os.mkfifo(name)
-		except FileExistsError:
-			pass
+		if not fsuffix:
+			name = f"{n}.fifo"
+			try:
+				os.mkfifo(name)
+			except FileExistsError:
+				pass
+		else:
+			name = f"{n}{fsuffix}"
+
 
 		f = open(name, "w")
 		print(f"{name} hooked by comsuming process", file=sys.stderr)
@@ -24,14 +28,14 @@ def main(crackstring, NUMFILES=1):
 	#craking definitions
 
 	def brute_feed(params):
-		max_chars = int(params)
+		max_chars = int(params[0])
 		for n, sub in enumerate(brute_gen(True)):
 			if len(sub) > max_chars: return
 			yield sub
 
 
 	def cartself(params):
-		files = params.split()
+		files = params
 
 		for rfile in files:
 			with open(rfile, "r") as r: 
@@ -55,7 +59,7 @@ def main(crackstring, NUMFILES=1):
 
 	def cartselfcache(params):
 		subs = []
-		files = params.split()
+		files = params
 		for file in files:
 			with open(file) as f:
 				subs += [line.rstrip() for line in f]
@@ -80,7 +84,7 @@ def main(crackstring, NUMFILES=1):
 
 
 	def openfile(params):
-		with open(params, "r") as f:
+		with open(params[0], "r") as f:
 			line = f.readline()
 			while line:
 				yield line.rstrip()
@@ -96,21 +100,23 @@ def main(crackstring, NUMFILES=1):
 
 	#####################
 
-	cs = crackstring.split(" ", 1)
-	if len(cs) > 1:
-		method, param = cs
-	else:
-		method = cs[0]
-
-	for n, sub in enumerate(methods[method](param)):
+	for n, sub in enumerate(methods[crackstring[0]](crackstring[1:])):
 		print(sub, file = files[n % NUMFILES])
 
 
 if __name__ == "__main__": 
-	if len(sys.argv) >= 3:
-		main(sys.argv[1],int(sys.argv[2]))
+	import argparse
+	
+	parser = argparse.ArgumentParser(description="Generate candidate subdomains using various means, and optinally spread them to multiple files / pipes")
+	parser.add_argument("crackstring", nargs="+", help="the domain to enumerate")
+	parser.add_argument("--numfiles", default=1, type=int, help="Number of files / pipes to use for emitting subdomain names")
+	parser.add_argument("--fsuffix", help="suffix of file names emitted, not settings this option uses the .pipe fifo's")
+	args = parser.parse_args()
+
+	if "fsuffix" in args:
+		main(args.crackstring, args.numfiles, args.fsuffix)
 	else:
-		main(sys.argv[1])
+		main(args.crackstring, args.numfiles)
 
 	# import cProfile
 	# with cProfile.Profile() as pr:
