@@ -8,6 +8,7 @@ import hashlib
 import _socket
 import multiprocessing as mp
 import random
+import time
 
 ################################################################################
 #                                 DNS FUNCTIONS                                #
@@ -667,6 +668,7 @@ class nsec3_intervals():
 
 def main(domain, hash_procs):
 	global lastsub
+	global lasttime
 	################################################################################
 	#                                   DNS PREP                                   #
 	################################################################################
@@ -689,6 +691,7 @@ def main(domain, hash_procs):
 	################################################################################
 	nsec3log = nsec3_intervals()
 	lastsub = "_"
+	lasttime = 0
 	
 
 	def emit_data(done=True):
@@ -706,6 +709,17 @@ def main(domain, hash_procs):
 		# return {"salt":salt.hex(), "iters":iters, "domain":domain, "alg": 1, "flags": 1, "hashes":[b32hex_encode(h[0]) for h in nsec3log.get()[1:]] }
 
 		return obj
+
+	
+	def progress():
+		global lastsub
+		global lasttime
+
+		t = time.time()
+		if (t - lasttime) > 0.1: #so the raging printing does not impact performance
+			lasttime = t
+			print(f"\033[1K\033[0G\033[37mCurrent subdomain: \033[31m{lastsub}\033[0m  \033[37mHits: \033[36m{len(nsec3log.get())}\033[0m    ", end="", file=sys.stderr) #wipe to start of line, place cursos start of line
+			sys.stderr.flush()
 
 
 	def main_loop():
@@ -726,6 +740,7 @@ def main(domain, hash_procs):
 					nsec3log.add(interval)
 
 			lastsub = sub
+			if args.progress: progress()
 			if nsec3log.complete(): 
 				break
 			
@@ -786,6 +801,7 @@ def main(domain, hash_procs):
 		future_last = lastsub
 		while True:
 			lastsub = future_last
+			progress()
 			future_last = nextitems(target, nsec3log) #start next procs and burst subdomains in there
 
 			count = nproc
@@ -833,7 +849,7 @@ def main(domain, hash_procs):
 		else:
 			obj = main_loop()
 	except KeyboardInterrupt: #If we break we just emit up untill then
-		pass
+		if args.progress: print("\033[0m", end="", file=sys.stderr)
 
 
 	obj = emit_data()
@@ -854,6 +870,7 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Enumerate NSEC3 records form a domain")
 	parser.add_argument("domain", help="the domain to enumerate")
 	parser.add_argument("--cores", default=1, type=int, help="Number of cores to use for hasing subdomain names")
+	parser.add_argument("--progress", action="store_true", help="Show progress by displaying current subdpomain bein evaluated")
 	args = parser.parse_args()
 
 	main(args.domain, args.cores)
