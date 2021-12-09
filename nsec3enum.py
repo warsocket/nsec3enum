@@ -151,20 +151,23 @@ def dns_shake(pkt, attempts=None, timeout=0.3, ip="::ffff:127.0.0.53", tcp=False
 
 
 	def send_udp(pkt, attempts, timeout, ip):
-		sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-		sock.settimeout(timeout)
+		# sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+		# sock.settimeout(timeout)
 		
 		n = 0
 		while True: #keep re-trying
 			try:
 				n += 1
+				sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+				sock.settimeout(timeout)				
 				sock.sendto(pkt, (ip, 53))
 				data, raddr = sock.recvfrom(0xFFFF)
 				break
 			except _socket.timeout:
+				sock.close()
 				if attempts:
 					if n >= attempts: 
-						sock.close()
+						# sock.close()
 						return None
 				print(f"timeout on DNS server UDP:{ip}, commencing retry attempt {n}", file=sys.stderr)
 

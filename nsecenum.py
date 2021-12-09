@@ -6,6 +6,8 @@ import random
 import _socket
 import threading
 import queue
+import time
+import os
 
 ################################################################################
 #                                  NSEC FUNCTIONS                              #
@@ -109,23 +111,39 @@ def main(domain, num_threads=1):
 		acc = 0.0
 		for n in range(num_threads):
 			wirestart = domain2wire(f'{init_list[int(acc)]}-.{domain}')
-			begin |= set(get_nsec_records(wirestart, ip=ip_ns[0]))
+			begin |= set(get_nsec_records(wirestart, ip=random.choice(ip_ns)))
 			acc += step
 
 
-		def thread_func(q, start, known, **kwarg):
-			ret = set()
+		def thread_func(q, start, known, result_set, **kwarg):
 			for x in nsec_gen(start, known, **kwarg):
-				ret.add(x)
-			q.put(ret)
+				result_set.add(x)
+			q.put(result_set)
 
 
 		threads = []
+		result_set = []
 		for b in begin:
 			# print(b[1])
-			threads.append( threading.Thread(target=thread_func, args=(q, incname(b[1]), begin.copy()), kwargs={"ip": random.choice(ip_ns)}) )
+			retset = set()
+			result_set.append(retset)
+			threads.append( threading.Thread(target=thread_func, args=(q, incname(b[1]), begin.copy(), retset), kwargs={"ip": random.choice(ip_ns)}) )
 			threads[-1].start()
 
+		#stuff for progress monitoring
+		if args.progress:
+			def progress(rsets):
+				while True:
+					time.sleep(0.1)
+					print(f"\033[1K\033[0G\033[37mSubdomains found: \033[31m{sum(map(len, result_set))}\033[0m    ", end="", file=sys.stderr) #wipe to start of line, place cursos start of line
+					sys.stderr.flush()
+
+			pthread = threading.Thread(target=progress, args=(result_set,))
+			pthread.daemon = True
+			pthread.start()
+
+
+		#from here we wait for completion
 		for t in threads:
 			t.join()
 
@@ -151,6 +169,11 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Enumerate NSEC3 records form a domain")
 	parser.add_argument("domain", help="the domain to enumerate")
 	parser.add_argument("--threads", default=1, type=int, help="Number of threads to use for hasing subdomain names (1 thread = streaming data >1 cahches data end emits sorted at the end)")
+	parser.add_argument("--progress", action="store_true", help="Show progress by displaying current subdpomain bein evaluated")
 	args = parser.parse_args()
+
+	if args.progress and args.threads == 1:
+		print("threads=1 streams output, so also setting --progress ise useless, so choose more threads, or use the streaming output", file=sys.stderr)
+		os.exit(1)
 
 	main(args.domain, args.threads)
