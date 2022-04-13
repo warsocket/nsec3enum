@@ -103,6 +103,9 @@ def main(crackstring, NUMFILES=1, fsuffix = None):
 	for n, sub in enumerate(methods[crackstring[0]](crackstring[1:])):
 		print(sub, file = files[n % NUMFILES])
 
+	for n in range(NUMFILES):
+		files[n].flush()
+
 
 if __name__ == "__main__": 
 	import argparse
