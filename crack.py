@@ -16,6 +16,7 @@ def main(jsonfile, crackstring, NUMFILES=16, fsuffix=None):
 			fifo = f"{n}.fifo"
 		else:
 			fifo = f"{n}{fsuffix}" #its a file nota fifo but hey
+			
 		proc.append(mp.Process(target=brute.main, args=(jsonfile, fifo)))
 		proc[-1].start()
 

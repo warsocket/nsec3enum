@@ -10,9 +10,11 @@ use std::str;
 use Extend;
 use std::collections::HashMap;
 
+use sha1::{Digest, Sha1};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Result;
-use data_encoding::BASE32HEX_NOPAD;
+use data_encoding::{BASE32HEX_NOPAD, HEXLOWER_PERMISSIVE};
 
 
 #[derive(Serialize, Deserialize)]
@@ -51,17 +53,6 @@ fn wire_fmt(input: &str) -> Vec<u8>{
 
 fn main() -> std::io::Result<()>{
 
-    let ret = BASE32HEX_NOPAD.decode("00cc5c3k56vnqsjqidm83cjjhp41hss4".to_uppercase().as_bytes()).unwrap();
-    let x:[u8;20] = (&ret[0..20]).try_into().unwrap();
-
-    let map:HashMap::<[u8;20],&str>;
-
-
-
-    // let string = str::from_utf8(&output).unwrap();
-    println!("{:?}", ret.len());
-    return Ok(());
-
     //parse argument 1
     let mut args_it = env::args();
     args_it.next();
@@ -75,14 +66,43 @@ fn main() -> std::io::Result<()>{
 
     //setup stuff
     let base_wire_domain = wire_fmt(&obj.domain);
+    let salt = HEXLOWER_PERMISSIVE.decode(&obj.salt.as_bytes()).unwrap();
+    let iters = obj.iters;
+
+    //setup hash table
+    let mut map:HashMap::<[u8;20],String> = HashMap::new();
+
+    for base32_hash in obj.hashes{
+        // println!("{}", base32_hash);
+        map.insert( (BASE32HEX_NOPAD.decode(base32_hash.to_uppercase().as_bytes()).unwrap())[0..20].try_into().unwrap(), base32_hash);
+    }
 
     //now crack from stdin
     let stdin = std::io::stdin();
-    for line in stdin.lock().lines() {
-        let mut wire_domain:Vec::<u8> = wire_prefix_fmt(&line.unwrap());
+    for wraped_line in stdin.lock().lines() {
+        let subdomain = wraped_line.unwrap();
+        let mut wire_domain:Vec::<u8> = wire_prefix_fmt(&subdomain);
         wire_domain.extend(&base_wire_domain);
 
-        // println!("{:?}", wire_domain);
+        let mut result = {
+            let mut hasher = Sha1::new();
+            hasher.update(wire_prefix_fmt(&subdomain));
+            hasher.update(&base_wire_domain);
+            hasher.update(&salt);
+            hasher.finalize()
+        };
+
+        for _ in 0..iters{
+            let mut hasher = Sha1::new();
+            hasher.update(&result);
+            hasher.update(&salt);
+            result = hasher.finalize();
+        }
+        
+        if let Some(encoded_hash) = map.get::<[u8; 20]>(&result.try_into().unwrap()) {
+            println!("{}\t{}.{}", *encoded_hash, subdomain, obj.domain);
+        }
+
     }
 
 

@@ -1,7 +1,6 @@
 use std::mem::transmute;
 use std::str::from_utf8;
 use std::str::from_utf8_unchecked;
-use std::cmp::max;
 use std::io::{stdout, Write, BufWriter};
 use std::fs::File;
 use std::io::prelude::*;
@@ -134,7 +133,6 @@ fn main(){
         }
         // stdout.flush();  
     }
-    // return
 
     //6
     slice_size = 6;
