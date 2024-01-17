@@ -1,6 +1,7 @@
 #!/usr/bin/env pypy3
 import sys
 import os
+import subprocess
 from nsec3enum import dns_alphabet_sans, dns_alphabet, dns_alphabet_sans_underscore, brute_gen, crude6_gen
 
 
@@ -26,6 +27,16 @@ def main(crackstring, NUMFILES=1, fsuffix = None):
 	print(f"All fifo's hooked, commencing feeding", file=sys.stderr)
 
 	#craking definitions
+
+	def brute6(params):
+		proc = subprocess.Popen(['rust/target/release/brute_sublist'],stdout=subprocess.PIPE)
+
+		line = True
+		while line:
+			line = proc.stdout.readline().decode("ascii")
+			yield line.rstrip()
+		
+
 
 	def brute_feed(params):
 		max_chars = int(params[0])
@@ -92,6 +103,7 @@ def main(crackstring, NUMFILES=1, fsuffix = None):
 
 
 	methods = {
+		"brute6": brute6,
 		"brute": brute_feed,
 		"cartself": cartself,
 		"cartselfcache": cartselfcache,
