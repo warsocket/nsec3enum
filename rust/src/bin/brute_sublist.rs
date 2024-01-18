@@ -36,7 +36,7 @@ fn main(){
     let mut out:[u8;65] = [10;65]; //max 63 chars + newline + leading _
     out[0] = b'_';
     let mut slice_size = 0;
-    let mut stdout = BufWriter::new(stdout());
+    let mut stdout = BufWriter::with_capacity(0xFFFF, stdout());
 
 
     // 1
@@ -165,5 +165,42 @@ fn main(){
         stdout.flush();
     }
 
+    return
+
+    //7
+    slice_size = 7;
+
+    for byte6 in alphabet_no_dash{
+        out[7] = *byte6;
+
+        for byte5 in alphabet_no_dash{
+            out[6] = *byte5;
+
+            for byte4 in alphabet_no_dash{
+                out[5] = *byte4; 
+
+                for byte3 in &alphabet{
+                    out[4] = *byte3;
+
+                    for byte2 in &alphabet{
+                        out[3] = *byte2;
+
+                        for byte1 in &alphabet{
+                            out[2] = *byte1;
+
+                            for byte0 in alphabet_no_dash{
+                                out[1] = *byte0;
+
+                                stdout.write(&out[1..slice_size+2]);
+                                // stdout.write(&out[0..slice_size+2]);
+                            }
+                        }
+                    }
+                }  
+            }
+            stdout.flush();
+        }
+    }
+
+
 }
-// from_utf8_unchecked
