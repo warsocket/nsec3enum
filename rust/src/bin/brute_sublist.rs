@@ -4,6 +4,7 @@ use std::str::from_utf8_unchecked;
 use std::io::{stdout, Write, BufWriter};
 use std::fs::File;
 use std::io::prelude::*;
+use std::env;
 
 // list(map(chr, range(97,123))) + list(map(str, range(10)))
 type Alphabet = [u8;26+10+1];
@@ -28,7 +29,6 @@ fn mk_alphabet() -> Alphabet{
     return ret
 }
 
-
 fn main(){
 
     let alphabet:Alphabet = mk_alphabet();
@@ -36,13 +36,31 @@ fn main(){
     let mut out:[u8;65] = [10;65]; //max 63 chars + newline + leading _
     out[0] = b'_';
     let mut slice_size = 0;
-    let mut stdout = BufWriter::with_capacity(0xFFFF, stdout());
 
+    let mut args_it = env::args();
+    args_it.next();
+
+
+    let string = match args_it.next(){
+        Some(x) => x,
+        None => String::from_utf8(alphabet_no_dash.to_vec()).unwrap(),
+    };
+
+    let inner_alphabet = string.as_str().as_bytes();
+
+    // let inner_alphabet = alphabet_no_dash;
+    // println!("{}", inner_alphabet);
+    // return;
+
+    
+    // return
+
+    let mut stdout = BufWriter::with_capacity(0xFFFF, stdout());
 
     // 1
     slice_size = 1;
 
-    for byte0 in alphabet_no_dash{
+    for byte0 in inner_alphabet{
         out[1] = *byte0;
 
         stdout.write(&out[1..slice_size+2]);
@@ -56,7 +74,7 @@ fn main(){
     for byte1 in alphabet_no_dash{
         out[2] = *byte1;
 
-        for byte0 in alphabet_no_dash{
+        for byte0 in inner_alphabet{
             out[1] = *byte0;
 
             stdout.write(&out[1..slice_size+2]);
@@ -74,7 +92,7 @@ fn main(){
         for byte1 in &alphabet{
              out[2] = *byte1;
 
-            for byte0 in alphabet_no_dash{
+            for byte0 in inner_alphabet{
                 out[1] = *byte0;
 
                 stdout.write(&out[1..slice_size+2]);
@@ -96,7 +114,7 @@ fn main(){
             for byte1 in &alphabet{
                 out[2] = *byte1;
 
-                for byte0 in alphabet_no_dash{
+                for byte0 in inner_alphabet{
                     out[1] = *byte0;
 
                     stdout.write(&out[1..slice_size+2]);
@@ -122,7 +140,7 @@ fn main(){
                 for byte1 in &alphabet{
                     out[2] = *byte1;
 
-                    for byte0 in alphabet_no_dash{
+                    for byte0 in inner_alphabet{
                         out[1] = *byte0;
 
                         stdout.write(&out[1..slice_size+2]);
@@ -152,7 +170,7 @@ fn main(){
                     for byte1 in &alphabet{
                         out[2] = *byte1;
 
-                        for byte0 in alphabet_no_dash{
+                        for byte0 in inner_alphabet{
                             out[1] = *byte0;
 
                             stdout.write(&out[1..slice_size+2]);
@@ -166,7 +184,7 @@ fn main(){
     }
 
     return
-
+    
     //7
     slice_size = 7;
 
@@ -188,7 +206,7 @@ fn main(){
                         for byte1 in &alphabet{
                             out[2] = *byte1;
 
-                            for byte0 in alphabet_no_dash{
+                            for byte0 in inner_alphabet{
                                 out[1] = *byte0;
 
                                 stdout.write(&out[1..slice_size+2]);
