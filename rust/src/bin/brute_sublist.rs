@@ -152,6 +152,8 @@ fn main(){
         // stdout.flush();  
     }
 
+    return
+
     //6
     slice_size = 6;
 
