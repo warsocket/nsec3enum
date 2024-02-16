@@ -152,7 +152,7 @@ fn main(){
         // stdout.flush();  
     }
 
-    return
+    // return
 
     //6
     slice_size = 6;
@@ -176,7 +176,7 @@ fn main(){
                             out[1] = *byte0;
 
                             stdout.write(&out[1..slice_size+2]);
-                            stdout.write(&out[0..slice_size+2]);
+                            // stdout.write(&out[0..slice_size+2]);
                         }
                     }
                 }
@@ -185,7 +185,7 @@ fn main(){
         stdout.flush();
     }
 
-    // return
+    return
     
     //7
     slice_size = 7;
